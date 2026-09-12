@@ -1,11 +1,10 @@
 # Accubits Invent Lab — Batch QC & Handover Suite (Web Edition)
 
-> **Zero-Server, 100% Client-Side Web Application**  
-> **Hostable directly on GitHub Pages or runnable locally in any browser.**
+> **Zero-Server, 100% Client-Side Web Application**
 
 ---
 
-## 🌟 Overview
+## Overview
 
 The **Web Edition** of the DPCB Batch QC & Handover Suite brings the full functionality of the desktop utility to the web browser. Colleagues can access the tool concurrently across multiple lab benches without needing Python, PyQt6, or ReportLab installed.
 
@@ -18,56 +17,12 @@ The **Web Edition** of the DPCB Batch QC & Handover Suite brings the full functi
   - Zero mention of surface finish.
 - **One-Click Batch ZIP Package:** Bundles `checklist.pdf`, `guidelines.pdf`, and `batch_summary.csv` into `<Batch_ID>_Package.zip`.
 - **Live Browser Database:** Persists batch history and serial counters in browser `localStorage`.
-- **Safe Database Archival & Reset ("Delete All Data"):** Prevents data loss by automatically creating and downloading a timestamped Markdown backup (`batch_registry_archived_*.md`) before clearing active records.
-- **Markdown Database Sync:** Easily export and import `batch_registry.md` across colleagues' workstations.
+- **Safe Database Archival & Reset:** Prevents data loss by automatically creating and downloading a timestamped Markdown backup (`batch_registry_archived_*.md`) before clearing active records.
+- **Markdown Database Sync:** Easily export and import `batch_registry.md` across workstations.
 
 ---
 
-## 🚀 How to Host on GitHub Pages (Parallel Work)
-
-To let your team open this in their web browsers simultaneously:
-
-### Method A: Host this `webpage` folder directly
-1. Commit and push the repository to GitHub:
-   ```bash
-   git add projects/QC/dpcb-assembly/batch-qc-utility/webpage
-   git commit -m "Deploy DPCB Batch QC Web Suite"
-   git push origin main
-   ```
-2. In your GitHub repository:
-   - Go to **Settings** → **Pages**.
-   - Under **Build and deployment** > **Source**, choose **Deploy from a branch**.
-   - If the `webpage` folder is placed in `/docs` or the root of a `gh-pages` branch, select that branch and folder, then click **Save**.
-3. GitHub Pages will provide a live URL (e.g., `https://<your-org>.github.io/<repo-name>/webpage/`).
-4. Any team member can open the link in Chrome, Edge, Safari, or Firefox to generate packages simultaneously.
-
----
-
-## 💻 Running Locally (Offline / Benchtop Mode)
-
-You can run the web application locally without an internet connection:
-
-### Option 1: Direct Double-Click
-Simply double-click `index.html` in Windows Explorer. It will open in your default browser and run immediately (all libraries and logos are stored locally in the `vendor/` folder).
-
-### Option 2: Local HTTP Server (Python)
-From this directory, run:
-```powershell
-python -m http.server 8080
-```
-Then navigate to `http://localhost:8080` in your web browser.
-
----
-
-## 🔄 Multi-Station Collaboration & Concurrency
-
-When multiple technicians use the tool concurrently:
-1. **Workstation Identifier:** In **Settings**, set each physical PC/laptop to a distinct identifier (e.g., `AIL-LAB-BENCH-01`, `AIL-LAB-BENCH-02`).
-2. **Master Log Sync:** Click **Export Registry (.md)** at the end of the shift to download `batch_registry.md`. Team leads can import Markdown logs from other stations to combine records into a unified master database.
-
----
-
-## 🔐 Role-Based Access Control (RBAC)
+## Role-Based Access Control (RBAC)
 
 The station implements strict role-based access control to maintain inspection integrity and traceability:
 
