@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accubits Invent Lab — Batch QC & Handover Suite</title>
+    <meta name="description" content="Accubits Invent Lab Web-Based Quality Control, Serializer and Handover Package Generator for DPCB Assembly and Diagnostic Platforms.">
+    <link rel="icon" type="image/x-icon" href="inven_logo.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <!-- Local Vendor Scripts for 100% Offline Capability -->
+    <script src="vendor/jspdf.umd.min.js"></script>
+    <script src="vendor/jspdf.plugin.autotable.min.js"></script>
+    <script src="vendor/jszip.min.js"></script>
+</head>
+<body>
+    <!-- Login Screen Modal/Overlay -->
+    <div class="login-wrapper" id="loginScreen">
+        <div class="login-card">
+            <div class="login-header">
+                <img src="inven_logo.png" alt="Accubits Invent Logo" class="login-logo">
+                <h1 class="login-title">ACCUBITS INVENT LAB</h1>
+                <p class="login-subtitle">Quality Control &amp; Handover Suite</p>
+                <div class="login-badge">Hardware QMS Authentication Station</div>
+            </div>
+
+            <form id="loginForm" class="login-form">
+                <div id="loginAlert" class="login-alert" style="display: none;"></div>
+
+                <div class="form-group">
+                    <label for="txtLoginEmail">Laboratory Email</label>
+                    <div class="input-with-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                        <input type="email" id="txtLoginEmail" class="form-control" placeholder="name@ainvent.org" required autofocus autocomplete="username">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="txtLoginPassword">Security Password</label>
+                    <div class="input-with-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        <input type="password" id="txtLoginPassword" class="form-control" placeholder="••••••••••••" required autocomplete="current-password">
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-login" id="btnLogin">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+                    Sign In to QC Station
+                </button>
+            </form>
+
+            <div class="login-footer">
+                <span>Authorized Personnel Only</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="app-container" id="appContainer" style="display: none;">
+        <!-- Top Navigation Header -->
+        <header class="navbar">
+            <div class="brand-group">
+                <img src="inven_logo.png" alt="Accubits Invent Logo" class="brand-logo" id="headerLogo">
+                <div class="brand-text">
+                    <h1 class="brand-title">ACCUBITS INVENT LAB</h1>
+                    <span class="brand-subtitle">QUALITY CONTROL &amp; HANDOVER SUITE &bull; WEB EDITION</span>
+                </div>
+            </div>
+
+            <div class="header-right-group">
+                <!-- Logged In User Profile Badge -->
+                <div class="user-profile-badge" id="userProfileBadge">
+                    <span class="user-status-dot"></span>
+                    <div class="user-meta">
+                        <strong id="lblUserName">Kezin B Wilson</strong>
+                        <span id="lblUserRole">Lead Product Engineer (Admin)</span>
+                    </div>
+                    <button type="button" class="btn btn-subtle btn-sm btn-logout" id="btnLogout" title="Sign out of QC Station">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                        Logout
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="main-content">
+            <!-- Batch Configuration Card -->
+            <section class="card config-card">
+                <div class="config-card-layout">
+                    <div class="config-form-col">
+                        <div class="card-header">
+                            <div class="card-title-group">
+                                <h2 class="card-title">Batch QC &amp; Serialization Parameters</h2>
+                                <p class="card-desc">Configure target hardware subsystem, batch size, inspector, and handover recipient.</p>
+                            </div>
+                        </div>
+                        
+                        <form id="qcForm" class="config-grid">
+                            <div class="form-group">
+                                <label for="cmbSubsystem">Target Hardware Subsystem</label>
+                                <select id="cmbSubsystem" class="form-control">
+                                    <option value="dpcb" selected>DPCB Assembly (Pluggable Sensor Cartridge)</option>
+                                    <option value="sensnia">SensNia Main PCB Station</option>
+                                    <option value="tmux">TMUX-TB Cartridge</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="spnQty">Batch Quantity (Units)</label>
+                                <div class="number-stepper">
+                                    <input type="number" id="spnQty" class="form-control" value="20" min="1" max="500">
+                                    <div class="stepper-buttons">
+                                        <button type="button" class="stepper-btn stepper-up" id="btnQtyUp" title="Increase quantity">
+                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                                        </button>
+                                        <button type="button" class="stepper-btn stepper-down" id="btnQtyDown" title="Decrease quantity">
+                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Auto-Assigned Inspector Display (Dropdown Removed) -->
+                            <div class="form-group">
+                                <label>Assigned Inspector / Tech (Auto-Assigned)</label>
+                                <div class="assigned-inspector-card">
+                                    <div class="inspector-icon">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                    </div>
+                                    <div class="inspector-info">
+                                        <strong id="lblFormInspectorName">Kezin B Wilson</strong>
+                                        <span id="lblFormInspectorRole">Lead Product Engineer &bull; kezin@ainvent.org</span>
+                                    </div>
+                                    <span class="inspector-badge-verified">Verified</span>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="txtHandover">Handover Recipient</label>
+                                <input type="text" id="txtHandover" class="form-control" value="MS Team (Material Science)">
+                            </div>
+
+                            <!-- Live Dynamic Badges -->
+                            <div class="preview-group">
+                                <label>Auto-Generated Batch ID</label>
+                                <div class="badge-preview" id="lblBatchId">BATCH-2026-0912-A</div>
+                            </div>
+
+                            <div class="preview-group">
+                                <label>Device Serial Range</label>
+                                <div class="badge-preview" id="lblSerialRange">DP1 to DP20</div>
+                            </div>
+
+                            <!-- Primary Action Buttons -->
+                            <div class="actions-group">
+                                <button type="button" class="btn btn-primary btn-hero" id="btnGeneratePackage">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                    Generate Batch Package (ZIP)
+                                </button>
+                                <div class="quick-downloads">
+                                    <button type="button" class="btn btn-subtle" id="btnDownloadChecklist">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                                        Checklist PDF
+                                    </button>
+                                    <button type="button" class="btn btn-subtle" id="btnDownloadGuidelines">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                                        Guidelines PDF
+                                    </button>
+                                    <button type="button" class="btn btn-subtle admin-feature" id="btnDownloadCsv" title="Export current batches as CSV">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                                        Summary CSV
+                                    </button>
+                                    <button type="button" class="btn btn-subtle admin-feature" id="btnExportDb" title="Download Master batch_registry.md file">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                        Export Registry (.md)
+                                    </button>
+                                    <button type="button" class="btn btn-subtle admin-feature" id="btnSettings" title="Configure Station &amp; Safe Reset">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                                        Settings
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Quality Assurance Visual Hero Panel -->
+                    <div class="qc-illustration-panel">
+                        <img src="QA engineers-rafiki.png" alt="Accubits Quality Assurance Engineers" class="qc-illustration-img">
+                    </div>
+                </div>
+            </section>
+
+            <!-- Master Batch Registry Table -->
+            <section class="card table-card">
+                <div class="card-header table-header">
+                    <div class="card-title-group">
+                        <h2 class="card-title">Master QC Batch Registry (Live Browser Database)</h2>
+                        <p class="card-desc" id="lblTableStats">Active recorded batches: 0</p>
+                    </div>
+                    <div class="table-tools">
+                        <input type="text" id="txtSearch" class="form-control form-control-sm" placeholder="Search batch ID, inspector, serial...">
+                        <button class="btn btn-secondary btn-sm" id="btnRefresh">Refresh</button>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="data-table" id="batchesTable">
+                        <thead>
+                            <tr>
+                                <th>Batch ID</th>
+                                <th>Subsystem</th>
+                                <th>Qty</th>
+                                <th>Serial Range</th>
+                                <th>Created Date</th>
+                                <th>Inspector</th>
+                                <th>QC Status</th>
+                                <th>Handover Recipient</th>
+                                <th style="text-align: right;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="batchesTbody">
+                            <!-- Populated dynamically via app.js -->
+                            <tr>
+                                <td colspan="9" class="empty-state">No batches created yet. Enter details above and click "Generate Batch Package".</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Execution & Access History (Admin View Only) -->
+            <section class="card log-card admin-feature-block" id="adminHistorySection">
+                <div class="card-header log-header">
+                    <div class="log-header-left">
+                        <h3 class="log-title">System &amp; Access History (Admin View)</h3>
+                        <div class="log-nav-tabs">
+                            <button type="button" class="tab-btn active" id="tabBtnLoginHistory">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>
+                                User Login History
+                                <span class="tab-count-badge" id="lblAuthCount">0</span>
+                            </button>
+                            <button type="button" class="tab-btn" id="tabBtnOperationalLog">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                                Operational Console
+                            </button>
+                        </div>
+                    </div>
+                    <div class="log-header-actions">
+                        <button type="button" class="btn-icon" id="btnClearHistory" title="Clear current history or log">Clear</button>
+                    </div>
+                </div>
+
+                <!-- Tab 1: User Login & Access History Table -->
+                <div class="auth-history-panel" id="authHistoryPanel">
+                    <div class="table-responsive auth-table-container">
+                        <table class="data-table auth-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 210px;">Timestamp</th>
+                                    <th>User / Operator</th>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th style="width: 130px;">Event</th>
+                                    <th style="width: 100px;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="authHistoryTbody">
+                                <tr>
+                                    <td colspan="6" class="empty-state">No authentication events recorded yet.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Operational Console Log -->
+                <div class="operational-log-panel" id="operationalLogPanel" style="display: none;">
+                    <div class="log-console" id="logConsole">
+                        <div class="log-entry"><span class="log-ts">[Ready]</span> Accubits Invent Lab Web Suite loaded. Client-side PDF engine initialized.</div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <span>Confidential &mdash; Accubits Invent Lab Quality Management System</span>
+            <span>Version 2.4.0 &bull; Lead: Kezin B Wilson</span>
+        </footer>
+    </div>
+
+    <!-- Settings Modal Dialog -->
+    <div class="modal-backdrop" id="settingsModal">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3 class="modal-title">Application Settings &amp; Safe Archival</h3>
+                <button class="btn-close" id="btnCloseSettings">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-section">
+                    <h4>Lab Benchtop Station Identifier</h4>
+                    <p class="section-desc">Identifies which physical workstation generated the serialized QC documents.</p>
+                    <input type="text" id="txtStationId" class="form-control" value="AIL-LAB-BENCH-01">
+                </div>
+
+                <div class="settings-section">
+                    <h4>Master Database Synchronization</h4>
+                    <p class="section-desc">Import an existing <code>batch_registry.md</code> or export active records.</p>
+                    <div class="button-row">
+                        <button class="btn btn-secondary" id="btnModalExportDb">Export Markdown DB</button>
+                        <label class="btn btn-secondary" style="margin: 0; cursor: pointer;">
+                            Import Markdown DB
+                            <input type="file" id="fileImportDb" accept=".md,.markdown,.json" style="display: none;">
+                        </label>
+                    </div>
+                </div>
+
+                <div class="settings-section safe-reset-section">
+                    <h4>Database Archival &amp; Safe Reset ("Delete All Data")</h4>
+                    <div class="safe-notice">
+                        <strong>Safe Data Protection:</strong> Clicking <em>"Archive &amp; Start Fresh"</em> will <strong>never</strong> erase your data. 
+                        It automatically downloads a complete timestamped backup of your current database (<code>batch_registry_archived_*.md</code>) 
+                        and restarts batch IDs and serial numbers from <code>BATCH-A</code> and <code>DP1</code>.
+                    </div>
+                    <button type="button" class="btn btn-danger" id="btnSafeArchiveReset">
+                        Archive Current Data &amp; Start Fresh DB
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="btnCancelSettings">Close</button>
+                <button class="btn btn-primary" id="btnSaveSettings">Save Preferences</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Web App Script -->
+    <script src="app.js"></script>
+</body>
+</html>
