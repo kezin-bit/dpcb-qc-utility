@@ -91,6 +91,19 @@
     const lblTableStats = document.getElementById('lblTableStats');
     const txtSearch = document.getElementById('txtSearch');
     const btnRefresh = document.getElementById('btnRefresh');
+    const btnSyncRepoDb = document.getElementById('btnSyncRepoDb');
+    const btnOpenMdDb = document.getElementById('btnOpenMdDb');
+
+    // Markdown DB Live Editor Modal Elements
+    const mdDbModal = document.getElementById('mdDbModal');
+    const btnCloseMdDb = document.getElementById('btnCloseMdDb');
+    const btnCancelMdDb = document.getElementById('btnCancelMdDb');
+    const btnApplyMdDb = document.getElementById('btnApplyMdDb');
+    const btnCopyMdDb = document.getElementById('btnCopyMdDb');
+    const btnDownloadMdDb = document.getElementById('btnDownloadMdDb');
+    const txtMdDbContent = document.getElementById('txtMdDbContent');
+    const lblCopyMdBtnText = document.getElementById('lblCopyMdBtnText');
+
     const logConsole = document.getElementById('logConsole');
     const tabBtnLoginHistory = document.getElementById('tabBtnLoginHistory');
     const tabBtnOperationalLog = document.getElementById('tabBtnOperationalLog');
@@ -104,7 +117,7 @@
     // Initialization & Event Listeners
     // =========================================================================
 
-    function init() {
+    async function init() {
         loadSettings();
         loadBatches();
         loadAuthHistory();
@@ -114,6 +127,9 @@
         const loggedIn = checkSession();
         if (loggedIn) {
             updatePreviews();
+        }
+        if (batches.length === 0) {
+            await fetchRepoMarkdownDb(true);
         }
         log('System ready. Browser local database active. Ready to generate QC packages.');
     }
@@ -132,7 +148,7 @@
                 try {
                     spnQty.stepUp();
                 } catch (e) {
-                    spnQty.value = Math.min(500, (parseInt(spnQty.value, 10) || 0) + 1);
+                    spnQty.value = (parseInt(spnQty.value, 10) || 0) + 1;
                 }
                 spnQty.dispatchEvent(new Event('input', { bubbles: true }));
             });
@@ -156,6 +172,19 @@
         if (btnExportDb) btnExportDb.addEventListener('click', exportMasterMarkdownDb);
         btnModalExportDb.addEventListener('click', exportMasterMarkdownDb);
         fileImportDb.addEventListener('change', handleImportDbFile);
+
+        // Markdown DB Sync & In-App Editor
+        if (btnSyncRepoDb) {
+            btnSyncRepoDb.addEventListener('click', () => fetchRepoMarkdownDb(false));
+        }
+        if (btnOpenMdDb) {
+            btnOpenMdDb.addEventListener('click', openMdDbModal);
+        }
+        if (btnCloseMdDb) btnCloseMdDb.addEventListener('click', closeMdDbModal);
+        if (btnCancelMdDb) btnCancelMdDb.addEventListener('click', closeMdDbModal);
+        if (btnApplyMdDb) btnApplyMdDb.addEventListener('click', handleApplyMdDb);
+        if (btnCopyMdDb) btnCopyMdDb.addEventListener('click', handleCopyMdDb);
+        if (btnDownloadMdDb) btnDownloadMdDb.addEventListener('click', handleDownloadMdDb);
 
         if (btnSettings) btnSettings.addEventListener('click', openSettingsModal);
         btnCloseSettings.addEventListener('click', closeSettingsModal);
@@ -1185,34 +1214,96 @@
     // Master Registry Markdown Import / Export
     // =========================================================================
 
-    function exportMasterMarkdownDb() {
+    // =========================================================================
+    // Master Registry Markdown Flat-File Database Logic
+    // =========================================================================
+
+    function generateMarkdownDbContent() {
         let md = `# Accubits Invent Lab — Master QC Batch Registry\n\n`;
-        md += `> [!NOTE]\n`;
-        md += `> This file serves as the master database for Accubits Invent Lab Quality Control.\n`;
+        md += `> Flat-file Markdown database for DPCB Batch QC & Serialization Suite.\n`;
+        md += `> You can edit this file directly on GitHub or in any text editor to track hardware batches.\n`;
         md += `> Station: ${settings.stationId || 'AIL-LAB-BENCH-01'} | Exported: ${new Date().toLocaleString()}\n\n`;
         md += `---\n\n`;
         md += `## Active Batches\n\n`;
         md += `| Batch ID | Subsystem | Total Qty | Serial Range | Created Date | Inspector | QC Status | Handover Target |\n`;
         md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
 
-        batches.forEach(b => {
-            md += `| \`${b.batchId}\` | ${b.subsystem} | ${b.qty} | \`${b.serialRange}\` | ${b.createdDate} | ${b.inspector} | ${b.status || 'PASSED'} | ${b.handover} |\n`;
-        });
+        if (batches.length === 0) {
+            md += `<!-- No active batches recorded yet -->\n`;
+        } else {
+            batches.forEach(b => {
+                md += `| \`${b.batchId}\` | ${b.subsystem} | ${b.qty} | \`${b.serialRange}\` | ${b.createdDate} | ${b.inspector} | ${b.status || 'PASSED'} | ${b.handover} |\n`;
+            });
+        }
 
         md += `\n---\n\n## Historical Batch Logs\n\n`;
-        batches.forEach(b => {
-            md += `### Batch: ${b.batchId}\n\n`;
-            md += `- **Subsystem:** ${b.subsystem}\n`;
-            md += `- **Batch Quantity:** ${b.qty} Units\n`;
-            md += `- **Serial Number Range:** \`${b.serialRange}\`\n`;
-            md += `- **Created Date:** ${b.createdDate}\n`;
-            md += `- **Inspector:** ${b.inspector}\n`;
-            md += `- **Handover Target:** ${b.handover}\n`;
-            md += `- **Status:** **${b.status || 'PASSED'}** — Approved for Handover.\n\n---\n\n`;
-        });
-
+        md += `| Batch ID | Subsystem | Total Qty | Serial Range | Created Date | Inspector | QC Status | Handover Target |\n`;
+        md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n\n`;
+        md += `---\n\n`;
         md += `*Accubits Invent Lab  |  Quality Control Division*\n`;
+        return md;
+    }
 
+    function parseMarkdownTableToBatches(content) {
+        const lines = content.split('\n');
+        let inTable = false;
+        const imported = [];
+
+        for (let line of lines) {
+            const l = line.trim();
+            if (l.startsWith('## Active Batches')) {
+                inTable = true;
+                continue;
+            }
+            if (inTable && l.startsWith('## ')) {
+                break;
+            }
+            if (inTable && l.startsWith('|') && !l.includes(':---')) {
+                const parts = l.split('|').map(x => x.trim().replace(/`/g, '')).slice(1, -1);
+                if (parts.length >= 8 && parts[0] !== 'Batch ID' && !parts[0].startsWith('<!--')) {
+                    imported.push({
+                        batchId: parts[0],
+                        subsystem: parts[1],
+                        qty: parseInt(parts[2], 10) || 20,
+                        serialRange: parts[3],
+                        createdDate: parts[4],
+                        inspector: parts[5],
+                        status: parts[6],
+                        handover: parts[7]
+                    });
+                }
+            }
+        }
+        return imported;
+    }
+
+    async function fetchRepoMarkdownDb(silent = false) {
+        try {
+            const resp = await fetch('batch_registry.md?t=' + Date.now());
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const content = await resp.text();
+            const imported = parseMarkdownTableToBatches(content);
+            if (imported.length > 0) {
+                batches = imported;
+                persistBatches();
+                renderTable();
+                updatePreviews();
+                log(`[SYNC OK] Synchronized ${imported.length} batch(es) from repository batch_registry.md`);
+                if (!silent) alert(`Successfully synchronized ${imported.length} batch(es) from repository batch_registry.md`);
+                return true;
+            } else {
+                if (!silent) alert('Repository batch_registry.md loaded, but no active batch rows were found.');
+                return false;
+            }
+        } catch (err) {
+            if (!silent) alert(`Could not fetch batch_registry.md: ${err.message}`);
+            log(`[SYNC NOTICE] Could not fetch batch_registry.md (${err.message})`);
+            return false;
+        }
+    }
+
+    function exportMasterMarkdownDb() {
+        const md = generateMarkdownDbContent();
         const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
         triggerDownload(blob, 'batch_registry.md');
         log('[OK] Exported live registry as batch_registry.md');
@@ -1232,46 +1323,20 @@
                     if (Array.isArray(parsed)) {
                         batches = parsed;
                         persistBatches();
+                        renderTable();
+                        updatePreviews();
                         log(`[OK] Imported ${batches.length} batches from JSON.`);
                         closeSettingsModal();
                         return;
                     }
                 }
 
-                // Parse Markdown table
-                const lines = content.split('\n');
-                let inTable = false;
-                const imported = [];
-
-                for (let line of lines) {
-                    const l = line.trim();
-                    if (l.startsWith('## Active Batches')) {
-                        inTable = true;
-                        continue;
-                    }
-                    if (inTable && l.startsWith('## ')) {
-                        break;
-                    }
-                    if (inTable && l.startsWith('|') && !l.includes(':---')) {
-                        const parts = l.split('|').map(x => x.trim().replace(/`/g, '')).slice(1, -1);
-                        if (parts.length >= 8 && parts[0] !== 'Batch ID') {
-                            imported.push({
-                                batchId: parts[0],
-                                subsystem: parts[1],
-                                qty: parseInt(parts[2], 10) || 20,
-                                serialRange: parts[3],
-                                createdDate: parts[4],
-                                inspector: parts[5],
-                                status: parts[6],
-                                handover: parts[7]
-                            });
-                        }
-                    }
-                }
-
+                const imported = parseMarkdownTableToBatches(content);
                 if (imported.length > 0) {
                     batches = imported;
                     persistBatches();
+                    renderTable();
+                    updatePreviews();
                     log(`[OK] Successfully imported ${imported.length} batches from ${file.name}`);
                     alert(`Imported ${imported.length} batches from ${file.name}`);
                     closeSettingsModal();
@@ -1283,6 +1348,54 @@
             }
         };
         reader.readAsText(file);
+    }
+
+    // Live In-App Markdown DB Modal Editor
+    function openMdDbModal() {
+        if (!mdDbModal) return;
+        txtMdDbContent.value = generateMarkdownDbContent();
+        mdDbModal.classList.add('active');
+    }
+
+    function closeMdDbModal() {
+        if (!mdDbModal) return;
+        mdDbModal.classList.remove('active');
+    }
+
+    function handleApplyMdDb() {
+        const content = txtMdDbContent.value.trim();
+        if (!content) return;
+        const parsed = parseMarkdownTableToBatches(content);
+        if (parsed.length > 0) {
+            batches = parsed;
+            persistBatches();
+            renderTable();
+            updatePreviews();
+            log(`[MD DB] Applied ${parsed.length} batches from edited Markdown.`);
+            alert(`Applied ${parsed.length} batch(es) to workstation database.`);
+            closeMdDbModal();
+        } else {
+            alert('Could not find any active batch rows in the table. Ensure the "## Active Batches" table format is preserved.');
+        }
+    }
+
+    function handleCopyMdDb() {
+        const text = txtMdDbContent.value;
+        navigator.clipboard.writeText(text).then(() => {
+            if (lblCopyMdBtnText) {
+                lblCopyMdBtnText.textContent = 'Copied!';
+                setTimeout(() => { lblCopyMdBtnText.textContent = 'Copy Markdown'; }, 2000);
+            }
+            log('[OK] Markdown database copied to clipboard.');
+        }).catch(err => {
+            alert('Failed to copy to clipboard: ' + err.message);
+        });
+    }
+
+    function handleDownloadMdDb() {
+        const blob = new Blob([txtMdDbContent.value], { type: 'text/markdown;charset=utf-8;' });
+        triggerDownload(blob, 'batch_registry.md');
+        log('[OK] Downloaded updated batch_registry.md');
     }
 
     // =========================================================================

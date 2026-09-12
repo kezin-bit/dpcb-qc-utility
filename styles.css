@@ -1143,3 +1143,51 @@ select.form-control {
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
+
+/* ==========================================================================
+   Markdown DB Live Editor Modal
+   ========================================================================== */
+
+.md-dialog-lg {
+    max-width: 860px;
+}
+
+.md-editor-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.md-db-textarea {
+    width: 100%;
+    min-height: 380px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+    line-height: 1.55;
+    background-color: var(--bg-input);
+    color: #38BDF8;
+    padding: 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    resize: vertical;
+    tab-size: 4;
+    white-space: pre;
+    overflow-x: auto;
+}
+
+.md-db-textarea:focus {
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.md-editor-hint {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 6px;
+}
