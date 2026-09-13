@@ -37,6 +37,8 @@
 
     const STORAGE_KEY_AUTH_USER = 'ail_batch_qc_auth_user_v1';
     const STORAGE_KEY_AUTH_LOG = 'ail_batch_qc_auth_history_v1';
+    const STORAGE_KEY_GITHUB = 'ail_batch_qc_github_v1';
+
     let currentUser = null;
     let authHistory = [];
 
@@ -47,6 +49,17 @@
         defaultInspector: 'Aswini Shaji',
         defaultHandover: 'MS Team (Material Science)'
     };
+
+    // GitHub Multi-Station Live Sync Configuration
+    let githubConfig = {
+        owner: 'kezin-bit',
+        repo: 'dpcb-qc-utility',
+        branch: 'main',
+        path: 'batch_registry.md',
+        token: ''
+    };
+    let currentGithubSha = null;
+    let isSyncingWithGithub = false;
 
     // DOM Elements - Authentication & Profile
     const loginScreen = document.getElementById('loginScreen');
@@ -104,6 +117,18 @@
     const txtMdDbContent = document.getElementById('txtMdDbContent');
     const lblCopyMdBtnText = document.getElementById('lblCopyMdBtnText');
 
+    // Cloud Sync Badge & GitHub Settings DOM Elements
+    const cloudSyncBadge = document.getElementById('cloudSyncBadge');
+    const cloudStatusDot = document.getElementById('cloudStatusDot');
+    const lblCloudSyncStatus = document.getElementById('lblCloudSyncStatus');
+
+    const txtGithubRepo = document.getElementById('txtGithubRepo');
+    const txtGithubBranch = document.getElementById('txtGithubBranch');
+    const txtGithubToken = document.getElementById('txtGithubToken');
+    const btnToggleTokenVisibility = document.getElementById('btnToggleTokenVisibility');
+    const btnTestGithubConnection = document.getElementById('btnTestGithubConnection');
+    const lblGithubConnectionStatus = document.getElementById('lblGithubConnectionStatus');
+
     const logConsole = document.getElementById('logConsole');
     const tabBtnLoginHistory = document.getElementById('tabBtnLoginHistory');
     const tabBtnOperationalLog = document.getElementById('tabBtnOperationalLog');
@@ -128,10 +153,25 @@
         if (loggedIn) {
             updatePreviews();
         }
-        if (batches.length === 0) {
-            await fetchRepoMarkdownDb(true);
-        }
-        log('System ready. Browser local database active. Ready to generate QC packages.');
+
+        // Initial live sync with repository database
+        await fetchFromGitHubApi(true);
+
+        // Background polling every 45 seconds when window is active
+        setInterval(() => {
+            if (!document.hidden && (githubConfig.token || githubConfig.repo)) {
+                fetchFromGitHubApi(true);
+            }
+        }, 45000);
+
+        // Auto-sync whenever operator switches back to this tab
+        window.addEventListener('focus', () => {
+            if (githubConfig.token || githubConfig.repo) {
+                fetchFromGitHubApi(true);
+            }
+        });
+
+        log('System ready. Multi-station sync active. Ready to generate QC packages.');
     }
 
     function setupListeners() {
@@ -173,10 +213,23 @@
         btnModalExportDb.addEventListener('click', exportMasterMarkdownDb);
         fileImportDb.addEventListener('change', handleImportDbFile);
 
-        // Markdown DB Sync & In-App Editor
-        if (btnSyncRepoDb) {
-            btnSyncRepoDb.addEventListener('click', () => fetchRepoMarkdownDb(false));
+        // GitHub Live Cloud Sync & In-App Editor
+        if (cloudSyncBadge) {
+            cloudSyncBadge.addEventListener('click', () => {
+                log('Manual cloud sync requested via status badge.');
+                fetchFromGitHubApi(false);
+            });
         }
+        if (btnSyncRepoDb) {
+            btnSyncRepoDb.addEventListener('click', () => fetchFromGitHubApi(false));
+        }
+        if (btnToggleTokenVisibility) {
+            btnToggleTokenVisibility.addEventListener('click', toggleTokenVisibility);
+        }
+        if (btnTestGithubConnection) {
+            btnTestGithubConnection.addEventListener('click', testGithubConnection);
+        }
+
         if (btnOpenMdDb) {
             btnOpenMdDb.addEventListener('click', openMdDbModal);
         }
@@ -337,6 +390,10 @@
             if (loginAlert) loginAlert.style.display = 'none';
             recordAuthEvent('SIGN_IN', found, 'SUCCESS');
             setAuthenticatedUser(found);
+            // Sync sign-in event across lab network if PAT is configured
+            if (githubConfig.token) {
+                commitMarkdownDbToGitHub(`Audit: Operator ${found.name} signed in at ${settings.stationId || 'AIL-BENCH'}`);
+            }
         } else {
             recordAuthEvent('FAILED_LOGIN', { name: 'Unauthorized Operator', email: emailVal || 'unknown', role: 'Security Warning' }, 'FAILED');
             if (loginAlert) {
@@ -354,6 +411,9 @@
         if (confirm('Are you sure you want to sign out of this QC workstation?')) {
             if (currentUser) {
                 recordAuthEvent('SIGN_OUT', currentUser, 'SUCCESS');
+                if (githubConfig.token) {
+                    commitMarkdownDbToGitHub(`Audit: Operator ${currentUser.name} signed out at ${settings.stationId || 'AIL-BENCH'}`);
+                }
             }
             showLoginScreen();
             log('User signed out.');
@@ -414,7 +474,8 @@
             userName: name,
             email: email,
             role: role,
-            status: status || 'SUCCESS'
+            status: status || 'SUCCESS',
+            stationId: settings.stationId || 'AIL-LAB-BENCH-01'
         };
 
         authHistory.unshift(entry);
@@ -446,8 +507,10 @@
                 ? '<span class="badge-status-pass">SUCCESS</span>'
                 : '<span class="badge-status-fail">FAILED</span>';
 
+            const stationText = entry.stationId ? `<span style="font-size: 10px; color: var(--text-muted); display: block;">${escapeHtml(entry.stationId)}</span>` : '';
+
             return `<tr>
-                <td style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);">${escapeHtml(entry.timestamp)}</td>
+                <td style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);">${escapeHtml(entry.timestamp)}${stationText}</td>
                 <td><strong style="color: var(--text-main);">${escapeHtml(entry.userName)}</strong></td>
                 <td style="color: var(--accent-cyan); font-family: var(--font-mono); font-size: 11.5px;">${escapeHtml(entry.email)}</td>
                 <td style="color: var(--text-muted); font-size: 11.5px;">${escapeHtml(entry.role)}</td>
@@ -474,9 +537,19 @@
             const raw = localStorage.getItem(STORAGE_KEY_SETTINGS);
             if (raw) {
                 settings = Object.assign(settings, JSON.parse(raw));
-                txtStationId.value = settings.stationId || 'AIL-LAB-BENCH-01';
-                txtHandover.value = settings.defaultHandover || 'MS Team (Material Science)';
+                if (txtStationId) txtStationId.value = settings.stationId || 'AIL-LAB-BENCH-01';
+                if (txtHandover) txtHandover.value = settings.defaultHandover || 'MS Team (Material Science)';
             }
+
+            const ghRaw = localStorage.getItem(STORAGE_KEY_GITHUB);
+            if (ghRaw) {
+                githubConfig = Object.assign(githubConfig, JSON.parse(ghRaw));
+            }
+            if (txtGithubRepo) txtGithubRepo.value = `${githubConfig.owner}/${githubConfig.repo}`;
+            if (txtGithubBranch) txtGithubBranch.value = githubConfig.branch || 'main';
+            if (txtGithubToken) txtGithubToken.value = githubConfig.token || '';
+
+            updateCloudStatusFromConfig();
         } catch (e) {
             console.error('Failed to load settings:', e);
         }
@@ -485,6 +558,7 @@
     function saveSettings() {
         try {
             localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settings));
+            localStorage.setItem(STORAGE_KEY_GITHUB, JSON.stringify(githubConfig));
         } catch (e) {
             console.error('Failed to save settings:', e);
         }
@@ -1144,6 +1218,12 @@
     }
 
     async function handleGenerateFullPackage() {
+        // Sync latest state from GitHub first so serial range and batch IDs are globally fresh
+        if (githubConfig.token || githubConfig.repo) {
+            log('Synchronizing latest registry from GitHub before allocating serial numbers...');
+            await fetchFromGitHubApi(true);
+        }
+
         const batch = createBatchRecord();
         log(`Initiating full package generation: ${batch.batchId} (${batch.serialRange}) for ${batch.inspector}...`);
 
@@ -1171,7 +1251,21 @@
             triggerDownload(zipBlob, `${batch.batchId}_Package.zip`);
 
             log(`[OK] Created & Downloaded complete ZIP package for ${batch.batchId}!`);
-            alert(`Batch ${batch.batchId} created successfully!\n\n• Serial Range: ${batch.serialRange}\n• Inspector: ${batch.inspector}\n• Package ZIP has been downloaded to your machine.`);
+
+            // Commit updated batch registry to GitHub
+            let syncNotice = '';
+            if (githubConfig.token) {
+                const commitRes = await commitMarkdownDbToGitHub(`Record QC Batch ${batch.batchId} (${batch.serialRange}) - Inspector: ${batch.inspector}`);
+                if (commitRes.success) {
+                    syncNotice = '\n\n• GitHub Live Sync: Automatically synchronized with repository! All workstations and inspectors are updated.';
+                } else {
+                    syncNotice = `\n\n• GitHub Sync Notice: Could not commit to GitHub (${commitRes.error || 'Token error'}). Stored locally on this machine.`;
+                }
+            } else {
+                syncNotice = '\n\n• Notice: GitHub Personal Access Token not configured in Settings. Saved in this browser only. Configure PAT in Settings to share records with other lab benches.';
+            }
+
+            alert(`Batch ${batch.batchId} created successfully!\n\n• Serial Range: ${batch.serialRange}\n• Inspector: ${batch.inspector}\n• Package ZIP has been downloaded to your machine.${syncNotice}`);
         } catch (err) {
             console.error(err);
             log(`ERROR generating batch package: ${err.message}`);
@@ -1179,11 +1273,17 @@
         }
     }
 
-    function handleDownloadChecklistOnly() {
+    async function handleDownloadChecklistOnly() {
+        if (githubConfig.token || githubConfig.repo) {
+            await fetchFromGitHubApi(true);
+        }
         const batch = createBatchRecord();
         const doc = generateChecklistPDFDoc(batch);
         doc.save(`${batch.batchId}_checklist.pdf`);
         log(`[OK] Generated and downloaded checklist.pdf for ${batch.batchId}`);
+        if (githubConfig.token) {
+            commitMarkdownDbToGitHub(`Record QC Batch ${batch.batchId} (${batch.serialRange}) - Checklist downloaded`);
+        }
     }
 
     function handleDownloadGuidelinesOnly() {
@@ -1192,12 +1292,18 @@
         log('[OK] Downloaded DPCB Quality Guidelines PDF.');
     }
 
-    function handleDownloadCsvOnly() {
+    async function handleDownloadCsvOnly() {
+        if (githubConfig.token || githubConfig.repo) {
+            await fetchFromGitHubApi(true);
+        }
         const batch = createBatchRecord();
         const csvContent = generateBatchCsvContent(batch);
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         triggerDownload(blob, `${batch.batchId}_summary.csv`);
         log(`[OK] Exported serialized summary CSV for ${batch.batchId}`);
+        if (githubConfig.token) {
+            commitMarkdownDbToGitHub(`Record QC Batch ${batch.batchId} (${batch.serialRange}) - CSV downloaded`);
+        }
     }
 
     function triggerDownload(blob, filename) {
@@ -1216,13 +1322,56 @@
 
     // =========================================================================
     // Master Registry Markdown Flat-File Database Logic
+    // =================================================================    // =========================================================================
+    // UTF-8 Safe Base64 Encoding & Decoding for GitHub REST API
+    // =========================================================================
+
+    function encodeBase64Utf8(str) {
+        return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, function (match, p1) {
+            return String.fromCharCode(parseInt(p1, 16));
+        }));
+    }
+
+    function decodeBase64Utf8(base64Str) {
+        const clean = base64Str.replace(/\s/g, '');
+        return decodeURIComponent(Array.prototype.map.call(atob(clean), function (c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+    }
+
+    // =========================================================================
+    // Cloud Status Badge & Configuration Helpers
+    // =========================================================================
+
+    function updateCloudStatusUI(status, labelText, tooltipTitle) {
+        if (cloudStatusDot) {
+            cloudStatusDot.className = 'cloud-status-dot ' + status;
+        }
+        if (lblCloudSyncStatus) {
+            lblCloudSyncStatus.textContent = labelText;
+        }
+        if (cloudSyncBadge && tooltipTitle) {
+            cloudSyncBadge.title = tooltipTitle;
+        }
+    }
+
+    function updateCloudStatusFromConfig() {
+        if (!githubConfig.token) {
+            updateCloudStatusUI('warning', 'Read-Only (No Token)', 'Public repository sync. Add a Personal Access Token in Settings to enable automatic commits from this workstation.');
+        } else {
+            updateCloudStatusUI('synced', 'GitHub Synced', `Live multi-station sync active on ${githubConfig.owner}/${githubConfig.repo} (${githubConfig.branch}). Click to sync immediately.`);
+        }
+    }
+
+    // =========================================================================
+    // Master Registry Markdown Flat-File Database Logic
     // =========================================================================
 
     function generateMarkdownDbContent() {
         let md = `# Accubits Invent Lab — Master QC Batch Registry\n\n`;
         md += `> Flat-file Markdown database for DPCB Batch QC & Serialization Suite.\n`;
         md += `> You can edit this file directly on GitHub or in any text editor to track hardware batches.\n`;
-        md += `> Station: ${settings.stationId || 'AIL-LAB-BENCH-01'} | Exported: ${new Date().toLocaleString()}\n\n`;
+        md += `> Station: ${settings.stationId || 'AIL-LAB-BENCH-01'} | Last Synced: ${new Date().toLocaleString()}\n\n`;
         md += `---\n\n`;
         md += `## Active Batches\n\n`;
         md += `| Batch ID | Subsystem | Total Qty | Serial Range | Created Date | Inspector | QC Status | Handover Target |\n`;
@@ -1236,69 +1385,304 @@
             });
         }
 
+        md += `\n---\n\n## Station Access & Sign-In History\n\n`;
+        md += `| Timestamp | Operator | Email | Role | Event | Status | Station ID |\n`;
+        md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+
+        if (authHistory.length === 0) {
+            md += `<!-- No station authentication events recorded yet -->\n`;
+        } else {
+            authHistory.slice(0, 50).forEach(a => {
+                md += `| ${a.timestamp} | ${a.userName} | \`${a.email}\` | ${a.role} | ${a.event} | ${a.status} | ${a.stationId || settings.stationId || 'AIL-LAB-BENCH-01'} |\n`;
+            });
+        }
+
         md += `\n---\n\n## Historical Batch Logs\n\n`;
         md += `| Batch ID | Subsystem | Total Qty | Serial Range | Created Date | Inspector | QC Status | Handover Target |\n`;
-        md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n\n`;
+        md += `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n\n`;
         md += `---\n\n`;
         md += `*Accubits Invent Lab  |  Quality Control Division*\n`;
         return md;
     }
 
-    function parseMarkdownTableToBatches(content) {
+    function parseMarkdownDb(content) {
         const lines = content.split('\n');
-        let inTable = false;
-        const imported = [];
+        let currentSection = '';
+        const parsedBatches = [];
+        const parsedAuth = [];
 
         for (let line of lines) {
             const l = line.trim();
             if (l.startsWith('## Active Batches')) {
-                inTable = true;
+                currentSection = 'batches';
+                continue;
+            } else if (l.startsWith('## Station Access & Sign-In History')) {
+                currentSection = 'auth';
+                continue;
+            } else if (l.startsWith('## ')) {
+                currentSection = '';
                 continue;
             }
-            if (inTable && l.startsWith('## ')) {
-                break;
-            }
-            if (inTable && l.startsWith('|') && !l.includes(':---')) {
+
+            if (l.startsWith('|') && !l.includes(':---')) {
                 const parts = l.split('|').map(x => x.trim().replace(/`/g, '')).slice(1, -1);
-                if (parts.length >= 8 && parts[0] !== 'Batch ID' && !parts[0].startsWith('<!--')) {
-                    imported.push({
-                        batchId: parts[0],
-                        subsystem: parts[1],
-                        qty: parseInt(parts[2], 10) || 20,
-                        serialRange: parts[3],
-                        createdDate: parts[4],
-                        inspector: parts[5],
-                        status: parts[6],
-                        handover: parts[7]
-                    });
+                if (currentSection === 'batches') {
+                    if (parts.length >= 8 && parts[0] !== 'Batch ID' && !parts[0].startsWith('<!--')) {
+                        parsedBatches.push({
+                            batchId: parts[0],
+                            subsystem: parts[1],
+                            qty: parseInt(parts[2], 10) || 20,
+                            serialRange: parts[3],
+                            createdDate: parts[4],
+                            inspector: parts[5],
+                            status: parts[6],
+                            handover: parts[7]
+                        });
+                    }
+                } else if (currentSection === 'auth') {
+                    if (parts.length >= 6 && parts[0] !== 'Timestamp' && !parts[0].startsWith('<!--')) {
+                        parsedAuth.push({
+                            id: 'AUTH-SYNC-' + parts[0].replace(/[^a-zA-Z0-9]/g, '') + '-' + (parts[2] || ''),
+                            timestamp: parts[0],
+                            userName: parts[1],
+                            email: parts[2],
+                            role: parts[3],
+                            event: parts[4],
+                            status: parts[5],
+                            stationId: parts[6] || 'AIL-BENCH'
+                        });
+                    }
                 }
             }
         }
-        return imported;
+        return { batches: parsedBatches, authHistory: parsedAuth };
+    }
+
+    function parseMarkdownTableToBatches(content) {
+        return parseMarkdownDb(content).batches;
+    }
+
+    function mergeBatches(incomingBatches) {
+        if (!incomingBatches || incomingBatches.length === 0) return false;
+        let changed = false;
+        const batchMap = new Map();
+
+        // 1. Map incoming batches
+        incomingBatches.forEach(b => {
+            if (b && b.batchId) batchMap.set(b.batchId, b);
+        });
+
+        // 2. Preserve any locally created batches not yet present on remote
+        batches.forEach(b => {
+            if (b && b.batchId && !batchMap.has(b.batchId)) {
+                batchMap.set(b.batchId, b);
+                changed = true;
+            }
+        });
+
+        const merged = Array.from(batchMap.values());
+        if (JSON.stringify(merged) !== JSON.stringify(batches)) {
+            batches = merged;
+            persistBatches();
+            changed = true;
+        }
+        return changed;
+    }
+
+    function mergeAuthHistory(incomingAuth) {
+        if (!incomingAuth || incomingAuth.length === 0) return false;
+        let changed = false;
+        const seen = new Set();
+        const merged = [];
+
+        [...authHistory, ...incomingAuth].forEach(item => {
+            const key = `${item.timestamp}_${item.email}_${item.event}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                merged.push(item);
+            }
+        });
+
+        if (merged.length !== authHistory.length) {
+            authHistory = merged.slice(0, 150);
+            saveAuthHistory();
+            renderAuthHistoryTable();
+            changed = true;
+        }
+        return changed;
+    }
+
+    // =========================================================================
+    // GitHub API Direct Live Synchronization Engine
+    // =========================================================================
+
+    async function fetchFromGitHubApi(silent = false) {
+        if (isSyncingWithGithub) return false;
+        isSyncingWithGithub = true;
+        updateCloudStatusUI('syncing', 'Syncing...', 'Checking GitHub repository for latest batches...');
+
+        try {
+            const repoPath = `${githubConfig.owner}/${githubConfig.repo}`;
+            const apiUrl = `https://api.github.com/repos/${repoPath}/contents/${githubConfig.path}?ref=${githubConfig.branch}&t=${Date.now()}`;
+
+            const headers = {
+                'Accept': 'application/vnd.github+json'
+            };
+            if (githubConfig.token) {
+                headers['Authorization'] = `Bearer ${githubConfig.token}`;
+            }
+
+            const resp = await fetch(apiUrl, { headers });
+
+            if (resp.status === 200) {
+                const data = await resp.json();
+                currentGithubSha = data.sha;
+                const rawMarkdown = decodeBase64Utf8(data.content);
+                const parsed = parseMarkdownDb(rawMarkdown);
+
+                const batchChanged = mergeBatches(parsed.batches);
+                const authChanged = mergeAuthHistory(parsed.authHistory);
+
+                if (batchChanged || authChanged) {
+                    renderTable();
+                    renderAuthHistoryTable();
+                    updatePreviews();
+                    log(`[CLOUD SYNC] Synchronized ${parsed.batches.length} batch(es) and ${parsed.authHistory.length} audit entry/entries from GitHub (${repoPath}).`);
+                }
+
+                if (githubConfig.token) {
+                    updateCloudStatusUI('synced', 'GitHub Synced', `Last synchronized at ${new Date().toLocaleTimeString()} on ${githubConfig.branch}`);
+                } else {
+                    updateCloudStatusUI('warning', 'Read-Only (No Token)', 'Fetched from GitHub. To commit updates from this workstation, enter a Personal Access Token in Settings.');
+                }
+
+                if (!silent) {
+                    alert(`Sync Complete!\n\n• Repository: ${repoPath}\n• Batches in DB: ${batches.length}\n• Audit Entries: ${authHistory.length}`);
+                }
+                isSyncingWithGithub = false;
+                return true;
+            } else if (resp.status === 404) {
+                currentGithubSha = null;
+                updateCloudStatusUI('warning', 'DB Not on Repo', 'batch_registry.md not found on branch. Generating a batch with PAT configured will create it automatically.');
+                isSyncingWithGithub = false;
+                return false;
+            } else {
+                // Try fallback to raw.githubusercontent.com or local file
+                const fallbackSuccess = await fetchFallbackRawMarkdown(silent);
+                isSyncingWithGithub = false;
+                return fallbackSuccess;
+            }
+        } catch (err) {
+            console.warn('GitHub API fetch failed, trying fallback:', err.message);
+            const fallbackSuccess = await fetchFallbackRawMarkdown(silent);
+            isSyncingWithGithub = false;
+            return fallbackSuccess;
+        }
+    }
+
+    async function fetchFallbackRawMarkdown(silent = false) {
+        try {
+            // First attempt: raw.githubusercontent.com
+            const rawUrl = `https://raw.githubusercontent.com/${githubConfig.owner}/${githubConfig.repo}/${githubConfig.branch}/${githubConfig.path}?t=${Date.now()}`;
+            let resp = await fetch(rawUrl).catch(() => null);
+
+            // Second attempt: local file relative to server
+            if (!resp || !resp.ok) {
+                resp = await fetch(`batch_registry.md?t=${Date.now()}`);
+            }
+
+            if (!resp || !resp.ok) throw new Error('Repository file inaccessible.');
+
+            const content = await resp.text();
+            const parsed = parseMarkdownDb(content);
+
+            mergeBatches(parsed.batches);
+            mergeAuthHistory(parsed.authHistory);
+            renderTable();
+            renderAuthHistoryTable();
+            updatePreviews();
+
+            updateCloudStatusUI('warning', 'Read-Only (Fallback)', 'Synchronized from public raw content. Configure Personal Access Token in Settings to enable direct cloud writing.');
+            log(`[FALLBACK SYNC] Loaded ${parsed.batches.length} batch(es) via fallback.`);
+            if (!silent) alert(`Synchronized ${parsed.batches.length} batch(es) from repository.`);
+            return true;
+        } catch (err) {
+            updateCloudStatusUI('error', 'Sync Failed', `Could not reach GitHub: ${err.message}`);
+            log(`[CLOUD SYNC NOTICE] Unable to reach GitHub (${err.message}). Local workstation database active.`);
+            if (!silent) alert(`Could not connect to GitHub repository: ${err.message}`);
+            return false;
+        }
     }
 
     async function fetchRepoMarkdownDb(silent = false) {
+        return await fetchFromGitHubApi(silent);
+    }
+
+    async function commitMarkdownDbToGitHub(commitMessage) {
+        if (!githubConfig.token) {
+            log('[NOTICE] No GitHub Personal Access Token configured. Saved to local browser storage.');
+            updateCloudStatusUI('warning', 'Local Only (No Token)', 'Enter a Personal Access Token in Settings to synchronize across lab workstations.');
+            return { success: false, reason: 'no-token' };
+        }
+
+        updateCloudStatusUI('syncing', 'Saving to GitHub...', 'Pushing updated batch registry to GitHub...');
         try {
-            const resp = await fetch('batch_registry.md?t=' + Date.now());
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const content = await resp.text();
-            const imported = parseMarkdownTableToBatches(content);
-            if (imported.length > 0) {
-                batches = imported;
-                persistBatches();
-                renderTable();
-                updatePreviews();
-                log(`[SYNC OK] Synchronized ${imported.length} batch(es) from repository batch_registry.md`);
-                if (!silent) alert(`Successfully synchronized ${imported.length} batch(es) from repository batch_registry.md`);
-                return true;
-            } else {
-                if (!silent) alert('Repository batch_registry.md loaded, but no active batch rows were found.');
-                return false;
+            const repoPath = `${githubConfig.owner}/${githubConfig.repo}`;
+            
+            // 1. Fetch latest SHA to prevent HTTP 409 Conflict
+            const getUrl = `https://api.github.com/repos/${repoPath}/contents/${githubConfig.path}?ref=${githubConfig.branch}&t=${Date.now()}`;
+            const getResp = await fetch(getUrl, {
+                headers: {
+                    'Authorization': `Bearer ${githubConfig.token}`,
+                    'Accept': 'application/vnd.github+json'
+                }
+            });
+
+            if (getResp.ok) {
+                const getData = await getResp.json();
+                currentGithubSha = getData.sha;
             }
+
+            // 2. Prepare PUT payload
+            const putUrl = `https://api.github.com/repos/${repoPath}/contents/${githubConfig.path}`;
+            const contentStr = generateMarkdownDbContent();
+            const base64Content = encodeBase64Utf8(contentStr);
+
+            const putBody = {
+                message: commitMessage || `Update QC batch registry [${settings.stationId || 'AIL-BENCH'}]`,
+                content: base64Content,
+                branch: githubConfig.branch
+            };
+            if (currentGithubSha) {
+                putBody.sha = currentGithubSha;
+            }
+
+            const putResp = await fetch(putUrl, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${githubConfig.token}`,
+                    'Accept': 'application/vnd.github+json',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(putBody)
+            });
+
+            if (!putResp.ok) {
+                const errData = await putResp.json().catch(() => ({}));
+                throw new Error(errData.message || `HTTP ${putResp.status}`);
+            }
+
+            const resData = await putResp.json();
+            currentGithubSha = resData.content?.sha || currentGithubSha;
+
+            updateCloudStatusUI('synced', 'GitHub Synced', `Last pushed to GitHub at ${new Date().toLocaleTimeString()} on ${githubConfig.branch}`);
+            log(`[CLOUD SYNC OK] Committed updated batch registry to GitHub (${githubConfig.branch}).`);
+            return { success: true };
         } catch (err) {
-            if (!silent) alert(`Could not fetch batch_registry.md: ${err.message}`);
-            log(`[SYNC NOTICE] Could not fetch batch_registry.md (${err.message})`);
-            return false;
+            console.error('GitHub Commit Error:', err);
+            updateCloudStatusUI('error', 'Sync Error', `Commit failed: ${err.message}`);
+            log(`[CLOUD SYNC ERROR] Could not push to GitHub: ${err.message}`);
+            return { success: false, error: err.message };
         }
     }
 
@@ -1317,7 +1701,6 @@
         reader.onload = function (evt) {
             const content = evt.target.result;
             try {
-                // Check if JSON
                 if (file.name.endsWith('.json')) {
                     const parsed = JSON.parse(content);
                     if (Array.isArray(parsed)) {
@@ -1362,17 +1745,31 @@
         mdDbModal.classList.remove('active');
     }
 
-    function handleApplyMdDb() {
+    async function handleApplyMdDb() {
         const content = txtMdDbContent.value.trim();
         if (!content) return;
-        const parsed = parseMarkdownTableToBatches(content);
-        if (parsed.length > 0) {
-            batches = parsed;
+        const parsed = parseMarkdownDb(content);
+        if (parsed.batches.length > 0) {
+            batches = parsed.batches;
             persistBatches();
+            if (parsed.authHistory.length > 0) {
+                mergeAuthHistory(parsed.authHistory);
+            }
             renderTable();
             updatePreviews();
-            log(`[MD DB] Applied ${parsed.length} batches from edited Markdown.`);
-            alert(`Applied ${parsed.length} batch(es) to workstation database.`);
+            log(`[MD DB] Applied ${parsed.batches.length} batches from edited Markdown.`);
+
+            if (githubConfig.token) {
+                log('Pushing edited Markdown database to GitHub repository...');
+                const commitRes = await commitMarkdownDbToGitHub('Direct update to batch_registry.md via In-App Editor');
+                if (commitRes.success) {
+                    alert(`Applied ${parsed.batches.length} batch(es) and synchronized with GitHub repository!`);
+                } else {
+                    alert(`Applied ${parsed.batches.length} batch(es) to this workstation. GitHub push warning: ${commitRes.error}`);
+                }
+            } else {
+                alert(`Applied ${parsed.batches.length} batch(es) to workstation database.`);
+            }
             closeMdDbModal();
         } else {
             alert('Could not find any active batch rows in the table. Ensure the "## Active Batches" table format is preserved.');
@@ -1417,7 +1814,6 @@
         );
 
         if (confirmReset) {
-            // 1. Export archive file with timestamp
             const nowStr = new Date().toISOString().replace(/[:.]/g, '-');
             const archiveFilename = `batch_registry_archived_${nowStr}.md`;
 
@@ -1431,21 +1827,32 @@
             const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
             triggerDownload(blob, archiveFilename);
 
-            // 2. Reset active database
             batches = [];
             persistBatches();
             log(`[SAFE RESET] Data safely archived to ${archiveFilename}. Active database reset to clean state.`);
+
+            if (githubConfig.token) {
+                commitMarkdownDbToGitHub(`Safe Archive & Reset triggered by ${settings.stationId}`);
+            }
+
             alert(`Database Safely Archived!\n\nBackup file: ${archiveFilename}\n\nActive registry is now clean and ready for fresh production runs.`);
             closeSettingsModal();
         }
     }
 
     // =========================================================================
-    // Settings Modal
+    // Settings Modal & GitHub Verification Handlers
     // =========================================================================
 
     function openSettingsModal() {
         txtStationId.value = settings.stationId || 'AIL-LAB-BENCH-01';
+        txtGithubRepo.value = `${githubConfig.owner}/${githubConfig.repo}`;
+        txtGithubBranch.value = githubConfig.branch || 'main';
+        txtGithubToken.value = githubConfig.token || '';
+        if (lblGithubConnectionStatus) {
+            lblGithubConnectionStatus.textContent = '';
+            lblGithubConnectionStatus.style.color = '';
+        }
         settingsModal.classList.add('active');
     }
 
@@ -1455,9 +1862,93 @@
 
     function saveSettingsFromModal() {
         settings.stationId = txtStationId.value.trim() || 'AIL-LAB-BENCH-01';
+
+        const repoVal = txtGithubRepo.value.trim();
+        if (repoVal.includes('/')) {
+            const parts = repoVal.split('/');
+            githubConfig.owner = parts[0].trim();
+            githubConfig.repo = parts[1].trim();
+        }
+        githubConfig.branch = txtGithubBranch.value.trim() || 'main';
+        githubConfig.token = txtGithubToken.value.trim();
+
         saveSettings();
         closeSettingsModal();
-        log(`Settings saved. Workstation identifier: ${settings.stationId}`);
+        updateCloudStatusFromConfig();
+
+        log(`Settings saved. Workstation: ${settings.stationId} | Target: ${githubConfig.owner}/${githubConfig.repo} (${githubConfig.branch})`);
+
+        // Test sync immediately
+        fetchFromGitHubApi(false);
+    }
+
+    function toggleTokenVisibility() {
+        if (!txtGithubToken || !btnToggleTokenVisibility) return;
+        if (txtGithubToken.type === 'password') {
+            txtGithubToken.type = 'text';
+            btnToggleTokenVisibility.textContent = 'Hide';
+        } else {
+            txtGithubToken.type = 'password';
+            btnToggleTokenVisibility.textContent = 'Show';
+        }
+    }
+
+    async function testGithubConnection() {
+        if (!lblGithubConnectionStatus) return;
+        const repoVal = (txtGithubRepo.value || '').trim();
+        const tokenVal = (txtGithubToken.value || '').trim();
+
+        if (!repoVal || !repoVal.includes('/')) {
+            lblGithubConnectionStatus.textContent = '❌ Enter repository in format "owner/repo"';
+            lblGithubConnectionStatus.style.color = 'var(--danger)';
+            return;
+        }
+
+        const [owner, repo] = repoVal.split('/').map(s => s.trim());
+        lblGithubConnectionStatus.textContent = '⏳ Testing connection...';
+        lblGithubConnectionStatus.style.color = 'var(--accent-cyan)';
+
+        try {
+            const headers = {
+                'Accept': 'application/vnd.github+json'
+            };
+            if (tokenVal) {
+                headers['Authorization'] = `Bearer ${tokenVal}`;
+            }
+
+            const resp = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+            if (resp.status === 401) {
+                lblGithubConnectionStatus.textContent = '❌ Invalid Token (401 Unauthorized)';
+                lblGithubConnectionStatus.style.color = 'var(--danger)';
+                return;
+            }
+            if (resp.status === 404) {
+                lblGithubConnectionStatus.textContent = '❌ Repo not found or Token lacks access (404)';
+                lblGithubConnectionStatus.style.color = 'var(--danger)';
+                return;
+            }
+            if (!resp.ok) {
+                lblGithubConnectionStatus.textContent = `❌ HTTP ${resp.status}`;
+                lblGithubConnectionStatus.style.color = 'var(--danger)';
+                return;
+            }
+
+            const repoData = await resp.json();
+            const canPush = repoData.permissions && repoData.permissions.push;
+            if (tokenVal && canPush) {
+                lblGithubConnectionStatus.textContent = '✅ Connected! Read & Write permissions verified.';
+                lblGithubConnectionStatus.style.color = 'var(--success)';
+            } else if (tokenVal) {
+                lblGithubConnectionStatus.textContent = '⚠️ Connected, but Token lacks write permission (Read-Only).';
+                lblGithubConnectionStatus.style.color = 'var(--warning)';
+            } else {
+                lblGithubConnectionStatus.textContent = '⚠️ Public Read-Only access (No Token).';
+                lblGithubConnectionStatus.style.color = 'var(--warning)';
+            }
+        } catch (err) {
+            lblGithubConnectionStatus.textContent = `❌ Connection failed: ${err.message}`;
+            lblGithubConnectionStatus.style.color = 'var(--danger)';
+        }
     }
 
     // Initialize on DOM ready

@@ -69,6 +69,12 @@
             </div>
 
             <div class="header-right-group">
+                <!-- Cloud Sync Status Badge -->
+                <div class="cloud-sync-badge" id="cloudSyncBadge" title="GitHub Cloud Sync: Click to sync with repository">
+                    <span class="cloud-status-dot synced" id="cloudStatusDot"></span>
+                    <span id="lblCloudSyncStatus">GitHub Synced</span>
+                </div>
+
                 <!-- Logged In User Profile Badge -->
                 <div class="user-profile-badge" id="userProfileBadge">
                     <span class="user-status-dot"></span>
@@ -322,6 +328,38 @@
                             Import Markdown DB
                             <input type="file" id="fileImportDb" accept=".md,.markdown,.json" style="display: none;">
                         </label>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h4>GitHub Multi-Station Live Sync</h4>
+                    <p class="section-desc">Connects this browser workstation directly to the GitHub repository so Kezin, Aswini, and all lab benches automatically share serial ranges, batch history, and operator records.</p>
+                    
+                    <div class="form-group" style="margin-bottom: 10px;">
+                        <label for="txtGithubRepo">Target GitHub Repository</label>
+                        <input type="text" id="txtGithubRepo" class="form-control" value="kezin-bit/dpcb-qc-utility" placeholder="owner/repository">
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 10px;">
+                        <label for="txtGithubBranch">Branch</label>
+                        <input type="text" id="txtGithubBranch" class="form-control" value="main" placeholder="main">
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 10px;">
+                        <label for="txtGithubToken">GitHub Personal Access Token (PAT)</label>
+                        <div class="input-with-icon" style="position: relative;">
+                            <input type="password" id="txtGithubToken" class="form-control" placeholder="ghp_... or github_pat_..." autocomplete="off">
+                            <button type="button" class="btn btn-subtle btn-sm" id="btnToggleTokenVisibility" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); padding: 4px 8px; font-size: 11px;">Show</button>
+                        </div>
+                        <span class="field-hint">Token requires <code>contents: write</code> permission to commit new batches directly to <code>batch_registry.md</code>. Saved locally in this workstation's browser.</span>
+                    </div>
+
+                    <div class="button-row" style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                        <button type="button" class="btn btn-secondary" id="btnTestGithubConnection">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                            Test GitHub Connection
+                        </button>
+                        <span id="lblGithubConnectionStatus" style="font-size: 11.5px; font-weight: 600;"></span>
                     </div>
                 </div>
 

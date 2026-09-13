@@ -8,3 +8,6 @@ Desktop.ini
 .idea/
 *.swp
 *.swo
+
+# Local archival dumps
+batch_registry_archived_*.md
